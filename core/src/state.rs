@@ -1,0 +1,8 @@
+//! Current state of the CPU, including registers and flags.
+
+
+#[derive(Debug, Default)]
+pub struct State {
+    pub pc: u64,
+    pub x: [u64; 32],
+}
