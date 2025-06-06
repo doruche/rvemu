@@ -1,8 +1,7 @@
 [package]
-name = "rvemu-core"
+name = "rvemu-cli"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bitflags = "2.9.1"
-memmap2 = "0.9.5"
+rvemu-core = { path = "../core" }

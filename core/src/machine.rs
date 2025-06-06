@@ -1,16 +1,20 @@
 
 use crate::*;
 
-pub use super::mmu::*;
+pub use crate::guest::*;
 pub use super::state::*;
 
 #[derive(Debug)]
-pub struct Cpu {
-    pub mmu: Mmu,
+pub struct Machine {
+    pub guest: GuestMem,
     pub state: State,
 }
 
-impl Cpu {
+impl Machine {
+    pub fn new() -> Self {
+        todo!()
+    }
+
     pub fn load_program(&mut self, program: &[u8]) -> Result<Error> {
         todo!()
     }
