@@ -77,15 +77,7 @@ impl MemSegment {
     pub fn num_pages(&self) -> usize {
         (self.m_gaddr_end - self.m_gaddr_start) as usize / PAGE_SIZE
     }
-
-    pub fn host_ptr(&self) -> *const u8 {
-        self.host_mmap.as_ptr()
-    }
-
-    pub fn host_ptr_mut(&mut self) -> *mut u8 {
-        self.host_mmap.as_mut_ptr()
-    }
-
+ 
     pub fn contains(&self, guest_addr: u64) -> bool {
         guest_addr >= self.gaddr_start && guest_addr < self.m_gaddr_end
     }
@@ -175,6 +167,11 @@ impl GuestMem {
         let gaddr_end = gaddr_start + len as u64;
 
         let m_gaddr_start = round_down!(gaddr_start, PAGE_SIZE) as u64;
+
+        if (m_gaddr_start != gaddr_start) {
+            warn!("Guest address {:#x} is not page-aligned, rounding down to {:#x}", gaddr_start, m_gaddr_start);
+        }
+
         let m_gaddr_end = round_up!(gaddr_end, PAGE_SIZE) as u64;
         let m_len = m_gaddr_end - m_gaddr_start as u64;
 
@@ -235,6 +232,81 @@ impl GuestMem {
         warn!("Address {:#x} not found in any memory segment", gaddr);
         Err(Error::MemAccessFault(access, gaddr))
     }
+
+    pub fn decompose_mut(&mut self, gaddr: u64, access: MemAccess) -> Result<(u64, &mut MemSegment)> {
+        for (&base_gaddr, segment) in self.segments.range_mut(..=gaddr).rev() {
+            if segment.contains(gaddr) {
+                //if segment.allows(access) {
+                if true {
+                    return Ok((base_gaddr, segment));
+                } else {
+                    warn!("Access denied for address {:#x} with flags {:?}", gaddr, access);
+                    return Err(Error::PermissionDenied)
+                }
+            }
+        }
+        warn!("Address {:#x} not found in any memory segment", gaddr);
+        Err(Error::MemAccessFault(access, gaddr))
+    }
+
+    pub fn read_u8(&self, gaddr: u64) -> Result<u8> {
+        let (base_gaddr, segment) = self.decompose(gaddr, MemAccess::Read)?;
+        let offset = (gaddr - segment.m_gaddr_start) as usize;
+        Ok(segment.host_mmap[offset])
+    }
+
+    pub fn write_u8(&mut self, gaddr: u64, value: u8) -> Result<()> {
+        let (base_gaddr, segment) = self.decompose_mut(gaddr, MemAccess::Write)?;
+        let offset = (gaddr - segment.m_gaddr_start) as usize;
+        segment.host_mmap[offset] = value;
+        Ok(())
+    }
+
+    pub fn read_u16(&self, gaddr: u64) -> Result<u16> {
+        // We can't ensure the address is aligned, so we read byte by byte.
+        let low = self.read_u8(gaddr)?;
+        let high = self.read_u8(gaddr + 1)?;
+        Ok((high as u16) << 8 | (low as u16))
+    }
+
+    pub fn write_u16(&mut self, gaddr: u64, value: u16) -> Result<()> {
+        self.write_u8(gaddr, (value & 0xFF) as u8)?;
+        self.write_u8(gaddr + 1, (value >> 8) as u8)?;
+        Ok(())
+    }
+
+    pub fn read_u32(&self, gaddr: u64) -> Result<u32> {
+        let b0 = self.read_u8(gaddr)?;
+        let b1 = self.read_u8(gaddr + 1)?;
+        let b2 = self.read_u8(gaddr + 2)?;
+        let b3 = self.read_u8(gaddr + 3)?;
+        Ok((b3 as u32) << 24 | (b2 as u32) << 16 | (b1 as u32) << 8 | (b0 as u32))
+    }
+
+    pub fn write_u32(&mut self, gaddr: u64, value: u32) -> Result<()> {
+        self.write_u8(gaddr, (value & 0xFF) as u8)?;
+        self.write_u8(gaddr + 1, ((value >> 8) & 0xFF) as u8)?;
+        self.write_u8(gaddr + 2, ((value >> 16) & 0xFF) as u8)?;
+        self.write_u8(gaddr + 3, ((value >> 24) & 0xFF) as u8)?;
+        Ok(())
+    }
+
+    pub fn read_u64(&self, gaddr: u64) -> Result<u64> {
+        let mut res = [0u8; 8];
+        for i in 0..8 {
+            res[i] = self.read_u8(gaddr + i as u64)?;
+        }
+        Ok(u64::from_le_bytes(res))
+    }
+
+    pub fn write_u64(&mut self, gaddr: u64, value: u64) -> Result<()> {
+        let bytes = value.to_le_bytes();
+        for i in 0..8 {
+            self.write_u8(gaddr + i as u64, bytes[i])?;
+        }
+        Ok(())
+    }
+
 }
 
 #[cfg(test)]
@@ -245,10 +317,29 @@ mod tests {
     fn test_parse_elf() {
         log::log_init(log::Level::Off);
 
-        let elf_data = include_bytes!("../../testfile/prime");
+        let elf_data = include_bytes!("../../testprogs/prime");
         let mut guest_mem = GuestMem::new();
         let entry = guest_mem.load_elf(elf_data).expect("Failed to load ELF");
         debug!("ELF entry point: {:#x}", entry);
         debug!("Initial break address: {:#x}", guest_mem.init_brk_gaddr);
+    }
+
+    #[test]
+    fn test_rw_bytes() {
+        log::log_init(log::Level::Off);
+
+        let elf_data = include_bytes!("../../testprogs/prime");
+        let mut guest_mem = GuestMem::new();
+        let entry = guest_mem.load_elf(elf_data).expect("Failed to load ELF");
+        debug!("ELF entry point: {:#x}", entry);
+        debug!("Initial break address: {:#x}", guest_mem.init_brk_gaddr);
+        let test_addr = 0x1a000;
+        guest_mem.write_u32(test_addr, 0x12345678).expect("Failed to write u32");
+        let value = guest_mem.read_u32(test_addr).expect("Failed to read u32");
+        assert_eq!(value, 0x12345678, "Read value does not match written value");
+        guest_mem.write_u64(test_addr + 4, 0x9abcdef012345678).expect("Failed to write u64");
+        let value64 = guest_mem.read_u64(test_addr + 4).expect("Failed to read u64");
+        assert_eq!(value64, 0x9abcdef012345678, "Read value does not match written value");
+        debug!("Read u32: {:#x}, Read u64: {:#x}", value, value64);
     }
 }

@@ -169,7 +169,7 @@ mod tests {
     fn test_parse_file() {
         log::log_init(log::Level::Off);
 
-        let elf = include_bytes!("../../testfile/prime");
+        let elf = include_bytes!("../../testprogs/prime");
         let ehdr = ElfHeader::from_bytes(&elf[..size_of::<ElfHeader>()]).unwrap();
         debug!("{:#x?}", ehdr);
 

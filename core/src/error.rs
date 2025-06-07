@@ -13,6 +13,7 @@ pub enum Error {
     MemAccessFault(MemAccess, u64),
     OutOfBounds,
     InternalError(String),
+    Unimplemented,
 }
 
 impl std::fmt::Display for Error {
@@ -25,6 +26,7 @@ impl std::fmt::Display for Error {
             Error::MemAccessFault(access, gaddr) => write!(f, "Memory access fault: {:?} at {:#x}", access, gaddr),
             Error::OutOfBounds => write!(f, "Memory access out of bounds"),
             Error::InternalError(msg) => write!(f, "Internal error: {}", msg),
+            Error::Unimplemented => write!(f, "Unimplemented feature or instruction"),
         }
     }
 }

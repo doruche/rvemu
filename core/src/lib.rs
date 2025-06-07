@@ -4,6 +4,7 @@
 pub mod machine;
 pub mod state;
 pub mod guest;
+pub mod insn;
 pub mod elf;
 pub mod emulator;
 pub mod error;
@@ -15,3 +16,4 @@ pub use error::{
     Error,
     Result,
 };
+pub use insn::InsnSet;
