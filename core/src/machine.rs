@@ -22,7 +22,7 @@ impl Machine {
 
     pub fn add_decoder(&mut self, set: InsnSet) -> Result<()> {
         let decoder = match set {
-            InsnSet::I32 => Box::new(insn::Rv32IDecoder),
+            InsnSet::I => Box::new(insn::Rv64IDecoder),
             _ => return Err(Error::Unimplemented),
         };
         self.decoders.push(decoder);
@@ -51,10 +51,12 @@ impl Machine {
         loop {
             self.state.x[0] = 0;
             self.state.break_on = None;
-                        
+
+            let cur_pc = self.state.pc;
+
             // For compressed instructions, we only consume 16 bits.
-            if self.state.pc % 2 != 0 {
-                error!("PC is not aligned to instruction size at {:#x}", self.state.pc);
+            if cur_pc % 2 != 0 {
+                error!("pc not aligned to instruction size at {:#x}", self.state.pc);
                 return Err(Error::InternalError("PC not aligned".to_string()));
             }
             let raw = self.guest.read_u32(self.state.pc)?;
@@ -70,16 +72,22 @@ impl Machine {
 
             executor(&mut self.state, &mut self.guest, &insn)?;
             debug!("state after execution: {:?}", self.state);
-            self.state.pc += insn.step_size() as u64;
 
-            if let Some(break_cause) = self.state.break_on {
-                debug!("break condition met: {:?}", break_cause);
-                if matches!(break_cause, BreakCause::Ecall) {
-                    debug!("ecall encountered");
-                    return Ok(break_cause);
-                } else {
-                    continue;
-                }
+            match self.state.break_on {
+                Some(BreakCause::Ecall) => {
+                    debug!("break on ecall at {:#x}", self.state.pc);
+                    return Err(Error::Unimplemented);
+                },
+                Some(BreakCause::Ebreak) => {
+                    debug!("break on ebreak at {:#x}", self.state.pc);
+                    return Err(Error::Unimplemented);
+                },
+                _ => (),
+            }
+
+            if cur_pc == self.state.pc {
+                // if pc did not change, it must be a normal instruction, otherwise some branch...
+                self.state.pc = cur_pc + insn.step_size() as u64;
             }
         }
     }
@@ -94,15 +102,9 @@ mod tests {
         log::log_init(log::Level::Off);
 
         let mut m = Machine::new();
-        m.add_decoder(InsnSet::I32).unwrap();
-        let program = include_bytes!("../../testprogs/prime");
+        m.add_decoder(InsnSet::I).unwrap();
+        let program = include_bytes!("../../testprogs/minimal");
         m.load_program(program).unwrap();
-
-        // fake some lui instruction at the start
-        // lui x0, 0x37
-        m.guest.write_u32(m.state.pc, 0x00000037).unwrap();
-        // lui x7, 0x777
-        m.guest.write_u32(m.state.pc + 4, 0x003093B7).unwrap();
 
         let result = m.step();
         debug!("step result: {:#?}", result);

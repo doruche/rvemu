@@ -70,7 +70,7 @@ pub fn log(
 // Or use unstable features to allow $$.
 // #![feature(macro_metavar_expr)]
 
-macro_rules! generate_log_macros {
+macro_rules! gen_loggers {
     ($dollar:tt $($name:ident, $level:ident)*) => {
         $(
             #[macro_export]
@@ -88,7 +88,7 @@ macro_rules! generate_log_macros {
     };
 }
 
-generate_log_macros!(
+gen_loggers!(
     $
     trace, Trace
     debug, Debug

@@ -236,8 +236,7 @@ impl GuestMem {
     pub fn decompose_mut(&mut self, gaddr: u64, access: MemAccess) -> Result<(u64, &mut MemSegment)> {
         for (&base_gaddr, segment) in self.segments.range_mut(..=gaddr).rev() {
             if segment.contains(gaddr) {
-                //if segment.allows(access) {
-                if true {
+                if segment.allows(access) {
                     return Ok((base_gaddr, segment));
                 } else {
                     warn!("Access denied for address {:#x} with flags {:?}", gaddr, access);

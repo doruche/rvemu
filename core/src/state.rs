@@ -6,12 +6,13 @@ pub enum BreakCause {
     DirectBranch,
     IndirectBranch,
     Ecall,
+    Ebreak
 }
 
 #[derive(Debug, Default)]
 pub struct State {
     pub pc: u64,
-    pub x: [u32; 32],
+    pub x: [u64; 32],
     pub break_on: Option<BreakCause>,
 }
 
