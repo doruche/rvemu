@@ -11,7 +11,8 @@ pub const RV64I_OPCODE_STORE: u8 = 0b0100011;
 pub const RV64I_OPCODE_OP_IMM: u8 = 0b0010011;
 pub const RV64I_OPCODE_OP: u8 = 0b0110011;
 pub const RV64I_OPCODE_BRANCH: u8 = 0b1100011;
-pub const RV64I_OPCODE_WORD: u8 = 0b0111011;
+pub const RV64I_OPCODE_OP_W: u8 = 0b0111011;
+pub const RV64I_OPCODE_OP_IMM_W: u8 = 0b0011011;
 pub const RV64I_OPCODE_JAL: u8 = 0b1101111;
 pub const RV64I_OPCODE_JALR: u8 = 0b1100111;
 pub const RV64I_OPCODE_LUI: u8 = 0b0110111;
@@ -389,7 +390,111 @@ impl Decoder for Rv64IDecoder {
                 }, rv64i_and as Executor),
                 _ => return Ok(None),
             },
-            RV64I_OPCODE_SYSTEM => unimplemented!(),
+            RV64I_OPCODE_OP_W => {
+                match funct3 {
+                    0b000 => match funct7 {
+                        0 => (Instruction::R {
+                            rd,
+                            rs1,
+                            rs2,
+                            funct3,
+                            funct7,
+                            opcode,
+                            raw,
+                        }, rv64i_addw as Executor),
+                        0b0100000 => (Instruction::R {
+                            rd,
+                            rs1,
+                            rs2,
+                            funct3,
+                            funct7,
+                            opcode,
+                            raw,
+                        }, rv64i_subw as Executor),
+                        _ => return Ok(None),
+                    },
+                    0b001 => (Instruction::R {
+                        rd,
+                        rs1,
+                        rs2,
+                        funct3,
+                        funct7,
+                        opcode,
+                        raw,
+                    }, rv64i_sllw as Executor),
+                    0b101 => match funct7 {
+                        0 => (Instruction::R {
+                            rd,
+                            rs1,
+                            rs2,
+                            funct3,
+                            funct7,
+                            opcode,
+                            raw,
+                        }, rv64i_srlw as Executor),
+                        0b0100000 => (Instruction::R {
+                            rd,
+                            rs1,
+                            rs2,
+                            funct3,
+                            funct7,
+                            opcode,
+                            raw,
+                        }, rv64i_sraw as Executor),
+                        _ => return Ok(None),
+                    }
+                    _ => return Ok(None),
+                }
+            },
+            RV64I_OPCODE_OP_IMM_W => match funct3 {
+                0b000 => (Instruction::I {
+                    rd,
+                    rs1,
+                    funct3,
+                    opcode,
+                    raw,
+                    imm: imm_i,
+                }, rv64i_addiw as Executor),
+                0b001 => (Instruction::I {
+                    rd,
+                    rs1,
+                    funct3,
+                    opcode,
+                    raw,
+                    imm: imm_i,
+                }, rv64i_slliw as Executor),
+                0b101 => match funct7 {
+                        0 => (Instruction::I {
+                            rd,
+                            rs1,
+                            funct3,
+                            opcode,
+                            raw,
+                            imm: imm_i,
+                        }, rv64i_srliw as Executor),
+                        0b0100000 => (Instruction::I {
+                            rd,
+                            rs1,
+                            funct3,
+                            opcode,
+                            raw,
+                            imm: imm_i,
+                        }, rv64i_sraiw as Executor),
+                        _ => return Ok(None),
+                    },
+                _ => return Ok(None),
+            },
+            RV64I_OPCODE_SYSTEM => match imm_i {
+                0 => (Instruction::I {
+                    rd,
+                    imm: imm_i,
+                    rs1,
+                    funct3,
+                    opcode,
+                    raw,
+                }, rv64i_ecall as Executor),
+                _ => return Err(Error::Unimplemented),
+            },
             _ => return Ok(None),
         };
 
@@ -416,7 +521,7 @@ pub fn rv64i_auipc(state: &mut State, guest: &mut GuestMem, insn: &Instruction) 
 pub fn rv64i_lb(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
         let imm = sign_extend!(imm, 12);
-        let addr = (state.x[rs1 as usize] as i64).wrapping_add(imm) as u64;
+        let addr = state.x[rs1 as usize].wrapping_add(imm as u64);
         let value = sign_extend!(guest.read_u8(addr)?, 8) as u64;
         state.x[rd as usize] = value;
         Ok(())
@@ -426,8 +531,8 @@ pub fn rv64i_lb(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> 
 pub fn rv64i_lbu(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
         let imm = sign_extend!(imm, 12);
-        let addr = (state.x[rs1 as usize] as i64).wrapping_add(imm) as u64;
-        let value = zero_extend!(guest.read_u8(addr)?, 8) as u64;
+        let addr = state.x[rs1 as usize].wrapping_add(imm as u64);
+        let value = zero_extend!(guest.read_u8(addr)?, 8);
         state.x[rd as usize] = value;
         Ok(())
     })
@@ -436,7 +541,7 @@ pub fn rv64i_lbu(state: &mut State, guest: &mut GuestMem, insn: &Instruction) ->
 pub fn rv64i_lh(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
         let imm = sign_extend!(imm, 12);
-        let addr = (state.x[rs1 as usize] as i64).wrapping_add(imm) as u64;
+        let addr = state.x[rs1 as usize].wrapping_add(imm as u64);
         let value = sign_extend!(guest.read_u16(addr)?, 16) as u64;
         state.x[rd as usize] = value;
         Ok(())
@@ -446,8 +551,8 @@ pub fn rv64i_lh(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> 
 pub fn rv64i_lhu(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
         let imm = sign_extend!(imm, 12);
-        let addr = (state.x[rs1 as usize] as i64).wrapping_add(imm) as u64;
-        let value = zero_extend!(guest.read_u16(addr)?, 16) as u64;
+        let addr = state.x[rs1 as usize].wrapping_add(imm as u64);
+        let value = zero_extend!(guest.read_u16(addr)?, 16);
         state.x[rd as usize] = value;
         Ok(())
     })
@@ -456,8 +561,8 @@ pub fn rv64i_lhu(state: &mut State, guest: &mut GuestMem, insn: &Instruction) ->
 pub fn rv64i_lw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
         let imm = sign_extend!(imm, 12);
-        let addr = (state.x[rs1 as usize] as i64).wrapping_add(imm) as u64;
-        let value = zero_extend!(guest.read_u32(addr)?, 32) as u64;
+        let addr = state.x[rs1 as usize].wrapping_add(imm as u64);
+        let value = sign_extend!(guest.read_u32(addr)?, 32) as u64;
         state.x[rd as usize] = value;
         Ok(())
     })
@@ -466,7 +571,7 @@ pub fn rv64i_lw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> 
 pub fn rv64i_ld(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
         let imm = sign_extend!(imm, 12);
-        let addr = (state.x[rs1 as usize] as i64).wrapping_add(imm) as u64;
+        let addr = state.x[rs1 as usize].wrapping_add(imm as u64);
         let value = guest.read_u64(addr)?;
         state.x[rd as usize] = value;
         Ok(())
@@ -476,7 +581,7 @@ pub fn rv64i_ld(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> 
 pub fn rv64i_sb(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     s!(insn, rs2, rs1, imm => {
         let imm = sign_extend!(imm, 12);
-        let addr = (state.x[rs1 as usize] as i64).wrapping_add(imm) as u64;
+        let addr = state.x[rs1 as usize].wrapping_add(imm as u64);
         let value = (state.x[rs2 as usize] & 0xff) as u8;
         guest.write_u8(addr, value)?;
         Ok(())
@@ -486,7 +591,7 @@ pub fn rv64i_sb(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> 
 pub fn rv64i_sh(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     s!(insn, rs2, rs1, imm => {
         let imm = sign_extend!(imm, 12);
-        let addr = (state.x[rs1 as usize] as i64).wrapping_add(imm) as u64;
+        let addr = state.x[rs1 as usize].wrapping_add(imm as u64);
         let value = (state.x[rs2 as usize] & 0xffff) as u16;
         guest.write_u16(addr, value)?;
         Ok(())
@@ -496,7 +601,7 @@ pub fn rv64i_sh(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> 
 pub fn rv64i_sw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     s!(insn, rs2, rs1, imm => {
         let imm = sign_extend!(imm, 12);
-        let addr = (state.x[rs1 as usize] as i64).wrapping_add(imm) as u64;
+        let addr = state.x[rs1 as usize].wrapping_add(imm as u64);
         let value = (state.x[rs2 as usize] & 0xffffffff) as u32;
         guest.write_u32(addr, value)?;
         Ok(())
@@ -506,7 +611,7 @@ pub fn rv64i_sw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> 
 pub fn rv64i_sd(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     s!(insn, rs2, rs1, imm => {
         let imm = sign_extend!(imm, 12);
-        let addr = (state.x[rs1 as usize] as i64).wrapping_add(imm) as u64;
+        let addr = state.x[rs1 as usize].wrapping_add(imm as u64);
         let value = state.x[rs2 as usize];
         guest.write_u64(addr, value)?;
         Ok(())
@@ -524,7 +629,7 @@ pub fn rv64i_addi(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -
 
 pub fn rv64i_slli(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
-        let value = state.x[rs1 as usize] << (imm & 0x1f);
+        let value = state.x[rs1 as usize] << (imm & 0x3f);
         state.x[rd as usize] = value;
         Ok(())
     })
@@ -532,7 +637,7 @@ pub fn rv64i_slli(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -
 
 pub fn rv64i_srli(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
-        let value = state.x[rs1 as usize] >> (imm & 0x1f);
+        let value = state.x[rs1 as usize] >> (imm & 0x3f);
         state.x[rd as usize] = value;
         Ok(())
     })
@@ -540,7 +645,7 @@ pub fn rv64i_srli(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -
 
 pub fn rv64i_srai(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
-        let value = state.x[rs1 as usize] as i64 >> (imm & 0x1f);
+        let value = state.x[rs1 as usize] as i64 >> (imm & 0x3f);
         state.x[rd as usize] = value as u64;
         Ok(())
     })
@@ -604,7 +709,7 @@ pub fn rv64i_sub(state: &mut State, guest: &mut GuestMem, insn: &Instruction) ->
 
 pub fn rv64i_sll(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     r!(insn, rd, rs1, rs2 => {
-        let value = state.x[rs1 as usize] << (state.x[rs2 as usize] & 0x1f);
+        let value = state.x[rs1 as usize] << (state.x[rs2 as usize] & 0x3f);
         state.x[rd as usize] = value;
         Ok(())
     })
@@ -612,7 +717,7 @@ pub fn rv64i_sll(state: &mut State, guest: &mut GuestMem, insn: &Instruction) ->
 
 pub fn rv64i_srl(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     r!(insn, rd, rs1, rs2 => {
-        let value = state.x[rs1 as usize] >> (state.x[rs2 as usize] & 0x1f);
+        let value = state.x[rs1 as usize] >> (state.x[rs2 as usize] & 0x3f);
         state.x[rd as usize] = value;
         Ok(())
     })
@@ -620,7 +725,7 @@ pub fn rv64i_srl(state: &mut State, guest: &mut GuestMem, insn: &Instruction) ->
 
 pub fn rv64i_sra(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     r!(insn, rd, rs1, rs2 => {
-        let value = (state.x[rs1 as usize] as i64) >> (state.x[rs2 as usize] & 0x1f);
+        let value = (state.x[rs1 as usize] as i64) >> (state.x[rs2 as usize] & 0x3f);
         state.x[rd as usize] = value as u64;
         Ok(())
     })
@@ -669,7 +774,7 @@ pub fn rv64i_sltu(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -
 pub fn rv64i_beq(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     b!(insn, rs1, rs2, imm => {
         if state.x[rs1 as usize] == state.x[rs2 as usize] {
-            state.pc = state.pc.wrapping_add(sign_extend!(imm, 12) as u64);
+            state.pc = state.pc.wrapping_add(sign_extend!(imm, 13) as u64);
         }
         Ok(())
     })
@@ -678,7 +783,7 @@ pub fn rv64i_beq(state: &mut State, guest: &mut GuestMem, insn: &Instruction) ->
 pub fn rv64i_bne(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     b!(insn, rs1, rs2, imm => {
         if state.x[rs1 as usize] != state.x[rs2 as usize] {
-            state.pc = state.pc.wrapping_add(sign_extend!(imm, 12) as u64);
+            state.pc = state.pc.wrapping_add(sign_extend!(imm, 13) as u64);
         }
         Ok(())
     })
@@ -687,7 +792,7 @@ pub fn rv64i_bne(state: &mut State, guest: &mut GuestMem, insn: &Instruction) ->
 pub fn rv64i_blt(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     b!(insn, rs1, rs2, imm => {
         if (state.x[rs1 as usize] as i64) < (state.x[rs2 as usize] as i64) {
-            state.pc = state.pc.wrapping_add(sign_extend!(imm, 12) as u64);
+            state.pc = state.pc.wrapping_add(sign_extend!(imm, 13) as u64);
         }
         Ok(())
     })
@@ -696,7 +801,7 @@ pub fn rv64i_blt(state: &mut State, guest: &mut GuestMem, insn: &Instruction) ->
 pub fn rv64i_bge(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     b!(insn, rs1, rs2, imm => {
         if (state.x[rs1 as usize] as i64) >= (state.x[rs2 as usize] as i64) {
-            state.pc = state.pc.wrapping_add(sign_extend!(imm, 12) as u64);
+            state.pc = state.pc.wrapping_add(sign_extend!(imm, 13) as u64);
         }
         Ok(())
     })
@@ -705,7 +810,7 @@ pub fn rv64i_bge(state: &mut State, guest: &mut GuestMem, insn: &Instruction) ->
 pub fn rv64i_bltu(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     b!(insn, rs1, rs2, imm => {
         if state.x[rs1 as usize] < state.x[rs2 as usize] {
-            state.pc = state.pc.wrapping_add(sign_extend!(imm, 12) as u64);
+            state.pc = state.pc.wrapping_add(sign_extend!(imm, 13) as u64);
         }
         Ok(())
     })
@@ -714,7 +819,7 @@ pub fn rv64i_bltu(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -
 pub fn rv64i_bgeu(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     b!(insn, rs1, rs2, imm => {
         if state.x[rs1 as usize] >= state.x[rs2 as usize] {
-            state.pc = state.pc.wrapping_add(sign_extend!(imm, 12) as u64);
+            state.pc = state.pc.wrapping_add(sign_extend!(imm, 13) as u64);
         }
         Ok(())
     })
@@ -723,7 +828,7 @@ pub fn rv64i_bgeu(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -
 pub fn rv64i_jal(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     j!(insn, rd, imm => {
         let target = state.pc.wrapping_add(sign_extend!(imm, 21) as u64);
-        state.x[rd as usize] = state.pc.wrapping_add(4);
+        state.x[rd as usize] = state.pc.wrapping_add(insn.step_size() as u64);
         state.pc = target;
         Ok(())
     })
@@ -731,8 +836,8 @@ pub fn rv64i_jal(state: &mut State, guest: &mut GuestMem, insn: &Instruction) ->
 
 pub fn rv64i_jalr(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
-        let target = (state.x[rs1 as usize] as i64).wrapping_add(sign_extend!(imm, 12)) & !1;
-        state.x[rd as usize] = state.pc.wrapping_add(4);
+        let target = state.x[rs1 as usize].wrapping_add(sign_extend!(imm, 12) as u64) & !1;
+        state.x[rd as usize] = state.pc.wrapping_add(insn.step_size() as u64);
         state.pc = target as u64;
         Ok(())
     })
@@ -741,8 +846,8 @@ pub fn rv64i_jalr(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -
 pub fn rv64i_lwu(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
         let imm = sign_extend!(imm, 12);
-        let addr = (state.x[rs1 as usize] as i64).wrapping_add(imm) as u64;
-        let value = zero_extend!(guest.read_u32(addr)?, 32) as u64;
+        let addr = state.x[rs1 as usize].wrapping_add(imm as u64);
+        let value = zero_extend!(guest.read_u32(addr)?, 32);
         state.x[rd as usize] = value;
         Ok(())
     })
@@ -763,7 +868,7 @@ pub fn rv64i_addiw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) 
 pub fn rv64i_slliw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
         let value = sign_extend!(
-            (state.x[rs1 as usize] as u32) << (imm & 0x1f),
+            (state.x[rs1 as usize] as u32) << (imm & 0x3f),
             32
         );
         state.x[rd as usize] = value as u64;
@@ -774,7 +879,7 @@ pub fn rv64i_slliw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) 
 pub fn rv64i_srliw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
         let value = sign_extend!(
-            (state.x[rs1 as usize] as u32) >> (imm & 0x1f),
+            (state.x[rs1 as usize] as u32) >> (imm & 0x3f),
             32
         );
         state.x[rd as usize] = value as u64;
@@ -785,7 +890,7 @@ pub fn rv64i_srliw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) 
 pub fn rv64i_sraiw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
         let value = sign_extend!(
-            (state.x[rs1 as usize] as i32) >> (imm & 0x1f),
+            (state.x[rs1 as usize] as i32) >> (imm & 0x3f),
             32
         );
         state.x[rd as usize] = value as u64;
@@ -818,7 +923,7 @@ pub fn rv64i_subw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -
 pub fn rv64i_sllw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     r!(insn, rd, rs1, rs2 => {
         let value = sign_extend!(
-            (state.x[rs1 as usize] as u32) << (state.x[rs2 as usize] & 0x1f),
+            (state.x[rs1 as usize] as u32) << (state.x[rs2 as usize] & 0x3f),
             32
         );
         state.x[rd as usize] = value as u64;
@@ -829,7 +934,7 @@ pub fn rv64i_sllw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -
 pub fn rv64i_srlw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     r!(insn, rd, rs1, rs2 => {
         let value = sign_extend!(
-            (state.x[rs1 as usize] as u32) >> (state.x[rs2 as usize] & 0x1f),
+            (state.x[rs1 as usize] as u32) >> (state.x[rs2 as usize] & 0x3f),
             32
         );
         state.x[rd as usize] = value as u64;
@@ -840,7 +945,7 @@ pub fn rv64i_srlw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -
 pub fn rv64i_sraw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     r!(insn, rd, rs1, rs2 => {
         let value = sign_extend!(
-            (state.x[rs1 as usize] as i32) >> (state.x[rs2 as usize] & 0x1f),
+            (state.x[rs1 as usize] as i32) >> (state.x[rs2 as usize] & 0x3f),
             32
         );
         state.x[rd as usize] = value as u64;
@@ -864,4 +969,29 @@ pub fn rv64i_fence(state: &mut State, guest: &mut GuestMem, insn: &Instruction) 
 
 pub fn rv64i_fence_i(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_decode() {
+        let decoder = Rv64IDecoder;
+        let insns = vec![
+            0xfe010113,
+            0x00113c23,
+            0x00813823,
+            0x02010413,
+            0xfe042623
+        ];
+        for insn in insns {
+            let result = decoder.decode(insn);
+            if let Ok(Some((instruction, executor))) = result {
+                println!("Decoded instruction: {:#x?}, Executor: {:?}", instruction, executor);
+            } else {
+                println!("Failed to decode instruction: {:#x}", insn);
+            }
+        }
+    }
 }

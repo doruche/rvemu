@@ -5,9 +5,11 @@ pub mod machine;
 pub mod state;
 pub mod guest;
 pub mod insn;
+pub mod syscall;
 pub mod elf;
 pub mod emulator;
 pub mod error;
+pub mod config;
 mod utils;
 #[macro_use]
 mod log;
@@ -17,3 +19,4 @@ pub use error::{
     Result,
 };
 pub use insn::InsnSet;
+pub use syscall::*;

@@ -3,8 +3,6 @@
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum BreakCause {
-    DirectBranch,
-    IndirectBranch,
     Ecall,
     Ebreak
 }

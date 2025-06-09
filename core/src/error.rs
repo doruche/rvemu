@@ -14,6 +14,8 @@ pub enum Error {
     OutOfBounds,
     InternalError(String),
     Unimplemented,
+    SyscallRequired,
+    Exit(i64),
 }
 
 impl std::fmt::Display for Error {
@@ -25,8 +27,10 @@ impl std::fmt::Display for Error {
             Error::PermissionDenied => write!(f, "Permission denied"),
             Error::MemAccessFault(access, gaddr) => write!(f, "Memory access fault: {:?} at {:#x}", access, gaddr),
             Error::OutOfBounds => write!(f, "Memory access out of bounds"),
+            Error::SyscallRequired => write!(f, "Syscall required but not implemented"),
             Error::InternalError(msg) => write!(f, "Internal error: {}", msg),
             Error::Unimplemented => write!(f, "Unimplemented feature or instruction"),
+            Error::Exit(code) => write!(f, "Exit with code {}", code), 
         }
     }
 }

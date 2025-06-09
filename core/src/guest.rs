@@ -146,7 +146,7 @@ impl GuestMem {
 
         let mut init_brk_gaddr = 0;
         for (&gaddr_start, segment) in self.segments.iter() {
-            debug!("loaded segment {:#x?}", segment);
+            trace!("loaded segment {:#x?}", segment);
             init_brk_gaddr = (init_brk_gaddr).max(segment.m_gaddr_end);
         }
         self.init_brk_gaddr = init_brk_gaddr;

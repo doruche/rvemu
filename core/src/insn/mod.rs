@@ -214,6 +214,7 @@ pub trait Decoder: Debug {
 
 pub type Executor = fn(&mut State, &mut GuestMem, &Instruction) -> Result<()>;
 
+
 pub mod rv64i;
 
 pub use rv64i::Rv64IDecoder;
@@ -266,7 +267,7 @@ mod tests {
 
         let bne = 0xffd11ee3;
         let imm = Instruction::extract_imm(bne, InsnType::B);
-        assert_eq!(((imm as i32) << 20) >> 20, -4);
+        assert_eq!(((imm as i32) << 19) >> 19, -4);
 
         // U-type
         let lui = 0x12345537;

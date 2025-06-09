@@ -1,4 +1,5 @@
 
+use crate::config::STACK_SIZE;
 use crate::*;
 use crate::guest::*;
 use crate::state::*;
@@ -8,7 +9,7 @@ use crate::insn::*;
 pub struct Machine {
     pub guest: GuestMem,
     pub state: State,
-    pub decoders: Vec<Box<dyn Decoder>>,
+    pub decoders: Vec<Box< dyn Decoder>>,
 }
 
 impl Machine {
@@ -33,6 +34,15 @@ impl Machine {
     pub fn load_program(&mut self, program: &[u8]) -> Result<()> {
         let entry = self.guest.load_elf(program)?;
         self.state.pc = entry;
+
+        // allocate stack space
+        self.guest.add_segment(
+            0x8000_0000 - STACK_SIZE as u64,
+            STACK_SIZE,
+            MemFlags::READ|MemFlags::WRITE,
+            None,
+        )?;
+        self.state.x[2] = 0x8000_0000;
         Ok(())
     }
 
@@ -45,8 +55,6 @@ impl Machine {
         Ok(None)
     }
 
-    /// Step the machine, executing a block of instructions.
-    /// Loops until a break condition is met. (currently only ecall)
     pub fn step(&mut self) -> Result<BreakCause> {
         loop {
             self.state.x[0] = 0;
@@ -60,7 +68,7 @@ impl Machine {
                 return Err(Error::InternalError("PC not aligned".to_string()));
             }
             let raw = self.guest.read_u32(self.state.pc)?;
-            debug!("decoding instruction at {:#x}: {:#x}", self.state.pc, raw);
+            trace!("decoding instruction at {:#x}: {:#x}", self.state.pc, raw);
             let (insn, executor) = match self.decode(raw)? {
                 Some((insn, executor)) => (insn, executor),
                 None => {
@@ -68,18 +76,18 @@ impl Machine {
                     return Err(Error::Unimplemented);
                 }
             };
-            debug!("executing instruction: {:?}", insn);
+            trace!("executing instruction: {:x?}", insn);
 
             executor(&mut self.state, &mut self.guest, &insn)?;
-            debug!("state after execution: {:?}", self.state);
+            trace!("state after execution: {:x?}", self.state);
 
             match self.state.break_on {
                 Some(BreakCause::Ecall) => {
-                    debug!("break on ecall at {:#x}", self.state.pc);
-                    return Err(Error::Unimplemented);
+                    trace!("break on ecall at {:#x}", self.state.pc);
+                    return Ok(BreakCause::Ecall);
                 },
                 Some(BreakCause::Ebreak) => {
-                    debug!("break on ebreak at {:#x}", self.state.pc);
+                    trace!("break on ebreak at {:#x}", self.state.pc);
                     return Err(Error::Unimplemented);
                 },
                 _ => (),
