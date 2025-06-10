@@ -9,7 +9,7 @@ use crate::insn::*;
 pub struct Machine {
     pub guest: GuestMem,
     pub state: State,
-    pub decoders: Vec<Box< dyn Decoder>>,
+    pub decoders: Vec<Box<dyn Decoder>>,
 }
 
 impl Machine {
@@ -22,8 +22,10 @@ impl Machine {
     }
 
     pub fn add_decoder(&mut self, set: InsnSet) -> Result<()> {
-        let decoder = match set {
+        let decoder: Box<dyn Decoder> = match set {
             InsnSet::I => Box::new(insn::Rv64IDecoder),
+            InsnSet::Zifencei => Box::new(insn::ZifenceiDecoder),
+            InsnSet::Ziscr => Box::new(insn::ZicsrDecoder),
             _ => return Err(Error::Unimplemented),
         };
         self.decoders.push(decoder);
@@ -68,7 +70,6 @@ impl Machine {
                 return Err(Error::InternalError("PC not aligned".to_string()));
             }
             let raw = self.guest.read_u32(self.state.pc)?;
-            trace!("decoding instruction at {:#x}: {:#x}", self.state.pc, raw);
             let (insn, executor) = match self.decode(raw)? {
                 Some((insn, executor)) => (insn, executor),
                 None => {
@@ -76,10 +77,10 @@ impl Machine {
                     return Err(Error::Unimplemented);
                 }
             };
-            trace!("executing instruction: {:x?}", insn);
+            trace!("pc@{:#x}: executing instruction: {:x?}", self.state.pc, insn);
+            trace!("state before: {:x?}", self.state);
 
             executor(&mut self.state, &mut self.guest, &insn)?;
-            trace!("state after execution: {:x?}", self.state);
 
             match self.state.break_on {
                 Some(BreakCause::Ecall) => {
@@ -106,7 +107,7 @@ mod tests {
     use super::*;
 
     #[test]
-    pub fn test_step() {
+    fn test_step() {
         log::log_init(log::Level::Off);
 
         let mut m = Machine::new();
@@ -117,4 +118,5 @@ mod tests {
         let result = m.step();
         debug!("step result: {:#?}", result);
     }
+
 }

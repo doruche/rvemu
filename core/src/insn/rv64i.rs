@@ -39,6 +39,20 @@ impl Decoder for Rv64IDecoder {
         let imm_j = Instruction::extract_imm(raw, InsnType::J);
 
         let res = match opcode {
+            RV64I_OPCODE_FENCE => {
+                if funct3 == 0 {
+                    (Instruction::I {
+                        rd,
+                        rs1,
+                        funct3,
+                        opcode,
+                        raw,
+                        imm: imm_i,
+                    }, rv64i_fence as Executor)
+                } else {
+                    return Ok(None);
+                }
+            },
             RV64I_OPCODE_LUI => (Instruction::U {
                 rd,
                 opcode,
@@ -493,7 +507,7 @@ impl Decoder for Rv64IDecoder {
                     opcode,
                     raw,
                 }, rv64i_ecall as Executor),
-                _ => return Err(Error::Unimplemented),
+                _ => return Ok(None),
             },
             _ => return Ok(None),
         };
@@ -505,14 +519,14 @@ impl Decoder for Rv64IDecoder {
 
 pub fn rv64i_lui(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     u!(insn, rd, imm => {
-        state.x[rd as usize] = zero_extend!(imm, 32);
+        state.x[rd as usize] = sign_extend!(imm, 32) as u64;
         Ok(())
     })
 }
 
 pub fn rv64i_auipc(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     u!(insn, rd, imm => {
-        let value = state.pc.wrapping_add(zero_extend!(imm, 32));
+        let value = state.pc.wrapping_add(sign_extend!(imm, 32) as u64);
         state.x[rd as usize] = value;
         Ok(())
     })
@@ -629,7 +643,7 @@ pub fn rv64i_addi(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -
 
 pub fn rv64i_slli(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
-        let value = state.x[rs1 as usize] << (imm & 0x3f);
+        let value = state.x[rs1 as usize].wrapping_shl(imm & 0x3f);
         state.x[rd as usize] = value;
         Ok(())
     })
@@ -637,7 +651,7 @@ pub fn rv64i_slli(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -
 
 pub fn rv64i_srli(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
-        let value = state.x[rs1 as usize] >> (imm & 0x3f);
+        let value = state.x[rs1 as usize].wrapping_shr(imm & 0x3f);
         state.x[rd as usize] = value;
         Ok(())
     })
@@ -645,7 +659,7 @@ pub fn rv64i_srli(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -
 
 pub fn rv64i_srai(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
-        let value = state.x[rs1 as usize] as i64 >> (imm & 0x3f);
+        let value = (state.x[rs1 as usize] as i64).wrapping_shr(imm & 0x3f);
         state.x[rd as usize] = value as u64;
         Ok(())
     })
@@ -709,7 +723,7 @@ pub fn rv64i_sub(state: &mut State, guest: &mut GuestMem, insn: &Instruction) ->
 
 pub fn rv64i_sll(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     r!(insn, rd, rs1, rs2 => {
-        let value = state.x[rs1 as usize] << (state.x[rs2 as usize] & 0x3f);
+        let value = state.x[rs1 as usize].wrapping_shl(state.x[rs2 as usize] as u32 & 0x3f);
         state.x[rd as usize] = value;
         Ok(())
     })
@@ -717,7 +731,7 @@ pub fn rv64i_sll(state: &mut State, guest: &mut GuestMem, insn: &Instruction) ->
 
 pub fn rv64i_srl(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     r!(insn, rd, rs1, rs2 => {
-        let value = state.x[rs1 as usize] >> (state.x[rs2 as usize] & 0x3f);
+        let value = state.x[rs1 as usize].wrapping_shr(state.x[rs2 as usize] as u32 & 0x3f);
         state.x[rd as usize] = value;
         Ok(())
     })
@@ -725,7 +739,7 @@ pub fn rv64i_srl(state: &mut State, guest: &mut GuestMem, insn: &Instruction) ->
 
 pub fn rv64i_sra(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     r!(insn, rd, rs1, rs2 => {
-        let value = (state.x[rs1 as usize] as i64) >> (state.x[rs2 as usize] & 0x3f);
+        let value = (state.x[rs1 as usize] as i64).wrapping_shr(state.x[rs2 as usize] as u32 & 0x3f);
         state.x[rd as usize] = value as u64;
         Ok(())
     })
@@ -868,7 +882,7 @@ pub fn rv64i_addiw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) 
 pub fn rv64i_slliw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
         let value = sign_extend!(
-            (state.x[rs1 as usize] as u32) << (imm & 0x3f),
+            (state.x[rs1 as usize] as u32).wrapping_shl(imm & 0x3f),
             32
         );
         state.x[rd as usize] = value as u64;
@@ -879,7 +893,7 @@ pub fn rv64i_slliw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) 
 pub fn rv64i_srliw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
         let value = sign_extend!(
-            (state.x[rs1 as usize] as u32) >> (imm & 0x3f),
+            (state.x[rs1 as usize] as u32).wrapping_shr(imm & 0x3f),
             32
         );
         state.x[rd as usize] = value as u64;
@@ -890,7 +904,7 @@ pub fn rv64i_srliw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) 
 pub fn rv64i_sraiw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     i!(insn, rd, rs1, imm => {
         let value = sign_extend!(
-            (state.x[rs1 as usize] as i32) >> (imm & 0x3f),
+            (state.x[rs1 as usize] as i32).wrapping_shr(imm & 0x3f),
             32
         );
         state.x[rd as usize] = value as u64;
@@ -923,7 +937,7 @@ pub fn rv64i_subw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -
 pub fn rv64i_sllw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     r!(insn, rd, rs1, rs2 => {
         let value = sign_extend!(
-            (state.x[rs1 as usize] as u32) << (state.x[rs2 as usize] & 0x3f),
+            (state.x[rs1 as usize] as u32).wrapping_shl(state.x[rs2 as usize] as u32 & 0x3f),
             32
         );
         state.x[rd as usize] = value as u64;
@@ -934,7 +948,7 @@ pub fn rv64i_sllw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -
 pub fn rv64i_srlw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     r!(insn, rd, rs1, rs2 => {
         let value = sign_extend!(
-            (state.x[rs1 as usize] as u32) >> (state.x[rs2 as usize] & 0x3f),
+            (state.x[rs1 as usize] as u32).wrapping_shr(state.x[rs2 as usize] as u32 & 0x3f),
             32
         );
         state.x[rd as usize] = value as u64;
@@ -945,7 +959,7 @@ pub fn rv64i_srlw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -
 pub fn rv64i_sraw(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
     r!(insn, rd, rs1, rs2 => {
         let value = sign_extend!(
-            (state.x[rs1 as usize] as i32) >> (state.x[rs2 as usize] & 0x3f),
+            (state.x[rs1 as usize] as i32).wrapping_shr(state.x[rs2 as usize] as u32 & 0x3f),
             32
         );
         state.x[rd as usize] = value as u64;
@@ -964,10 +978,7 @@ pub fn rv64i_ebreak(state: &mut State, guest: &mut GuestMem, insn: &Instruction)
 }
 
 pub fn rv64i_fence(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
-    Ok(())
-}
-
-pub fn rv64i_fence_i(state: &mut State, guest: &mut GuestMem, insn: &Instruction) -> Result<()> {
+    trace!("dummy fence");
     Ok(())
 }
 

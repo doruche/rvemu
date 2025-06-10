@@ -206,6 +206,11 @@ pub enum InsnSet {
     D,
     A,
     C,
+    Zifencei,
+
+    // following for testing purposes
+    P,
+    Ziscr,
 }
 
 pub trait Decoder: Debug {
@@ -214,16 +219,28 @@ pub trait Decoder: Debug {
 
 pub type Executor = fn(&mut State, &mut GuestMem, &Instruction) -> Result<()>;
 
+pub fn noop_executor(
+    _state: &mut State,
+    _mem: &mut GuestMem,
+    _insn: &Instruction,
+) -> Result<()> {
+    // No operation, just return Ok
+    Ok(())
+}
+
 
 pub mod rv64i;
+pub mod zicsr;
+pub mod zifencei;
 
 pub use rv64i::Rv64IDecoder;
+pub use zicsr::ZicsrDecoder;
+pub use zifencei::ZifenceiDecoder;
+
 
 
 #[cfg(test)]
 mod tests {
-    use std::net::Incoming;
-
     use super::*;
 
     #[test]

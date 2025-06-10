@@ -13,7 +13,7 @@ pub struct MiniSyscallHandler;
 impl SyscallHandler for MiniSyscallHandler {
     fn handle(&mut self, state: &mut State, guest: &mut GuestMem) -> Result<u64> {
         match state.x[17] {
-            0 => sys_exit(state),
+            93 => sys_exit(state),
             _ => {
                 error!("mini syscall unimplemented: {}", state.x[17]);
                 Err(Error::Unimplemented)

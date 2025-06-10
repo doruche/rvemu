@@ -210,9 +210,9 @@ impl GuestMem {
                 .copy_from_slice(data);
             // zero out the rest of the segment
             segment.host_mmap[..(gaddr_start - m_gaddr_start) as usize].fill(0);
-            segment.host_mmap[(m_gaddr_end - gaddr_end) as usize..].fill(0);
+            segment.host_mmap[(gaddr_start - m_gaddr_start) as usize + data.len()..].fill(0);
         }
-        self.segments.insert(gaddr_start, segment);
+        self.segments.insert(m_gaddr_start, segment);
 
         Ok(())
     }
