@@ -39,7 +39,7 @@ impl Level {
 
 static THRESHOLD: OnceLock<Level> = OnceLock::new();
 
-fn get_threshold() -> Level {
+pub fn get_threshold() -> Level {
     *THRESHOLD.get().expect("msg: Log level not initialized")
 }
 

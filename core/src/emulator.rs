@@ -19,6 +19,7 @@ pub struct Emulator {
     // guest: Arc<RwLock<GuestMem>>,
     guest: GuestMem,
     syscall: Box<dyn SyscallHandler>,
+    stack_size: usize,
     isa: Vec<InsnSet>,
 }
 
@@ -26,14 +27,17 @@ pub struct EmulatorBuilder {
     hart: Hart,
     syscall: Option<Box<dyn SyscallHandler>>,
     decoders: Vec<InsnSet>,
+    /// default stack size in bytes (8 MiB)
+    stack_size: usize,
 }
 
 impl EmulatorBuilder {
     pub fn new() -> Self {
         Self {
-            hart: Hart::new(),
+            hart: Hart::new(0),
             syscall: None,
             decoders: vec![],
+            stack_size: STACK_SIZE,
         }
     }
 
@@ -44,6 +48,11 @@ impl EmulatorBuilder {
 
     pub fn decoder(mut self, set: InsnSet) -> Self {
         self.decoders.push(set);
+        self
+    }
+
+    pub fn stack_size(mut self, size: usize) -> Self {
+        self.stack_size = size;
         self
     }
 
@@ -60,6 +69,7 @@ impl EmulatorBuilder {
             hart: self.hart,
             guest: GuestMem::new(),
             syscall: self.syscall.unwrap(),
+            stack_size: self.stack_size,
             isa,
         })
     }
@@ -76,8 +86,8 @@ impl Emulator {
 
         // allocate stack space
         self.guest.add_segment(
-            0x8000_0000 - STACK_SIZE as u64,
-            STACK_SIZE,
+            0x8000_0000 - self.stack_size as u64,
+            self.stack_size,
             MemFlags::READ|MemFlags::WRITE,
             None,
         )?;
@@ -85,9 +95,19 @@ impl Emulator {
         Ok(())
     }
 
-    pub fn run(&mut self) -> Result<()> {
+    pub fn run(&mut self) -> Result<i64> {
         loop {
-            self.step()?;
+            match self.step() {
+                Ok(_) => {},
+                Err(Error::Exit(code)) => {
+                    debug!("Program exited with code {}", code);
+                    return Ok(code);
+                }
+                Err(e) => {
+                    error!("Error during execution: {:?}", e);
+                    return Err(e);
+                }
+            }
         }
     }
 
@@ -120,7 +140,7 @@ mod tests {
         log::log_init(log::Level::Trace);
 
         let mut emulator = Emulator::new()
-            .syscall(Box::new(crate::Mini))
+            .syscall(Box::new(crate::Minilib))
             .decoder(InsnSet::I)
             .build()
             .unwrap();
@@ -143,7 +163,7 @@ mod tests {
     fn test_inner(test_name: &str) {
 
         let mut emulator = Emulator::new()
-            .syscall(Box::new(crate::Mini))
+            .syscall(Box::new(crate::Minilib))
             .decoder(InsnSet::I)
             .decoder(InsnSet::Ziscr)
             .decoder(InsnSet::Zifencei)
@@ -180,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn test() {
+    fn test_rv64i() {
         // log::log_init(log::Level::Trace);
 
         // test_inner("rv64ui-p-add");

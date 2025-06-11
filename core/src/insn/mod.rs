@@ -109,7 +109,7 @@ pub enum Instruction {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InsnType {
     R,
     I,
@@ -198,7 +198,7 @@ gen_insn_unwrappers!(
 );
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum InsnSet {
     I,
     M,
@@ -211,6 +211,20 @@ pub enum InsnSet {
     // following for testing purposes
     P,
     Ziscr,
+}
+
+impl InsnSet {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "I" => Some(InsnSet::I),
+            "M" => Some(InsnSet::M),
+            "F" => Some(InsnSet::F),
+            "D" => Some(InsnSet::D),
+            "A" => Some(InsnSet::A),
+            "C" => Some(InsnSet::C),
+            _ => None,
+        }
+    }
 }
 
 pub trait Decoder: Debug {

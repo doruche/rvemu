@@ -13,6 +13,7 @@ pub enum Error {
     MemAccessFault(MemAccess, u64),
     OutOfBounds,
     InternalError(String),
+    IoError(std::io::Error),
     Unimplemented,
     SyscallRequired,
     Exit(i64),
@@ -30,7 +31,8 @@ impl std::fmt::Display for Error {
             Error::SyscallRequired => write!(f, "Syscall required but not implemented"),
             Error::InternalError(msg) => write!(f, "Internal error: {}", msg),
             Error::Unimplemented => write!(f, "Unimplemented feature or instruction"),
-            Error::Exit(code) => write!(f, "Exit with code {}", code), 
+            Error::Exit(code) => write!(f, "Exit with code {}", code),
+            Error::IoError(e) => write!(f, "I/O error: {}", e),
         }
     }
 }

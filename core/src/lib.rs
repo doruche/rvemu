@@ -12,7 +12,7 @@ pub mod error;
 pub mod config;
 mod utils;
 #[macro_use]
-mod log;
+pub mod log;
 
 pub use error::{
     Error,

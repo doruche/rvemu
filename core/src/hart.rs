@@ -7,15 +7,19 @@ use crate::guest::*;
 use crate::state::*;
 use crate::insn::*;
 
+/// Virtual Hart representing a RISC-V core.
+/// 'id' can be seen as the tid of the hart, not real hardware id.
 #[derive(Debug)]
 pub struct Hart {
+    pub id: usize,
     pub state: State,
     pub decoders: Vec<Arc<dyn Decoder>>,
 }
 
 impl Hart {
-    pub fn new() -> Self {
+    pub fn new(id: usize) -> Self {
         Self {
+            id,
             state: State::default(),
             decoders: vec![],
         }
