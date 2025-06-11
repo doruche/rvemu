@@ -20,5 +20,6 @@ let mut rvemu = Emulator::new()
     .syscall(Box::new(Newlib))
     .stack_size(4096 * 2048)
     .build().unwrap();
+rvemu.load_elf("path/to/your/elf/file").unwrap();
 let exit_code = rvemu.run().unwrap();
 ```
