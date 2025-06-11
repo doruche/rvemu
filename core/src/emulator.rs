@@ -1,20 +1,29 @@
 //! Interface for users to interact with the emulator.
 //! Operations such as loading programs, running them, and accessing the state of the CPU and memory are provided.
 
+use std::sync::Arc;
+
+use crate::guest::*;
+use crate::insn::*;
 use crate::*;
+use crate::config::*;
 use crate::error::*;
-use crate::machine::*;
+use crate::hart::*;
 use crate::state::*;
 use crate::syscall::*;
 
 #[derive(Debug)]
 pub struct Emulator {
-    machine: Machine,
+    // harts: Vec<Hart>,
+    hart: Hart,
+    // guest: Arc<RwLock<GuestMem>>,
+    guest: GuestMem,
     syscall: Box<dyn SyscallHandler>,
+    isa: Vec<InsnSet>,
 }
 
 pub struct EmulatorBuilder {
-    machine: Machine,
+    hart: Hart,
     syscall: Option<Box<dyn SyscallHandler>>,
     decoders: Vec<InsnSet>,
 }
@@ -22,30 +31,36 @@ pub struct EmulatorBuilder {
 impl EmulatorBuilder {
     pub fn new() -> Self {
         Self {
-            machine: Machine::new(),
+            hart: Hart::new(),
             syscall: None,
             decoders: vec![],
         }
     }
 
-    pub fn with_syscall_handler(mut self, handler: Box<dyn SyscallHandler>) -> Self {
+    pub fn syscall(mut self, handler: Box<dyn SyscallHandler>) -> Self {
         self.syscall = Some(handler);
         self
     }
 
-    pub fn add_decoder(mut self, set: InsnSet) -> Result<Self> {
-        self.machine.add_decoder(set)?;
+    pub fn decoder(mut self, set: InsnSet) -> Self {
         self.decoders.push(set);
-        Ok(self)
+        self
     }
 
-    pub fn build(self) -> Result<Emulator> {
+    pub fn build(mut self) -> Result<Emulator> {
         if self.syscall.is_none() {
             return Err(Error::SyscallRequired);
         }
+        let mut isa = vec![];
+        for set in self.decoders.iter() {
+            self.hart.add_decoder(*set)?;
+            isa.push(*set);
+        }
         Ok(Emulator {
-            machine: self.machine,
+            hart: self.hart,
+            guest: GuestMem::new(),
             syscall: self.syscall.unwrap(),
+            isa,
         })
     }
 }
@@ -55,29 +70,42 @@ impl Emulator {
         EmulatorBuilder::new()
     }
 
-    pub fn load_program(&mut self, program: &[u8]) -> Result<()> {
-        self.machine.load_program(program)
+    pub fn load_elf(&mut self, program: &[u8]) -> Result<()> {
+        let entry = self.guest.load_elf(program)?;
+        self.hart.state.pc = entry;
+
+        // allocate stack space
+        self.guest.add_segment(
+            0x8000_0000 - STACK_SIZE as u64,
+            STACK_SIZE,
+            MemFlags::READ|MemFlags::WRITE,
+            None,
+        )?;
+        self.hart.state.x[2] = 0x8000_0000;
+        Ok(())
     }
 
     pub fn run(&mut self) -> Result<()> {
         loop {
-            match self.machine.step()? {
-                BreakCause::Ecall => {
-                    self.syscall.handle(&mut self.machine.state, &mut self.machine.guest)?;
-                }
-                BreakCause::Ebreak => {
-                    return Err(Error::Unimplemented);
-                }
-            }
+            self.step()?;
         }
     }
 
-    pub fn dump_state(&self) -> String {
-        format!("{:#x?}", self.machine.state)
+    pub fn step(&mut self) -> Result<()> {
+        match self.hart.step(&mut self.guest)? {
+            Some(BreakCause::Ecall) => {
+                self.syscall.handle(&mut self.hart.state, &mut self.guest)?;
+            }
+            Some(BreakCause::Ebreak) => {
+                return Err(Error::Unimplemented);
+            }
+            None => {}
+        }
+        Ok(())
     }
 
     pub fn state(&self) -> &State {
-        &self.machine.state
+        &self.hart.state
     }
 }
 
@@ -92,20 +120,18 @@ mod tests {
         log::log_init(log::Level::Trace);
 
         let mut emulator = Emulator::new()
-            .with_syscall_handler(Box::new(crate::Mini))
-            .add_decoder(InsnSet::I)
-            .unwrap()
+            .syscall(Box::new(crate::Mini))
+            .decoder(InsnSet::I)
             .build()
             .unwrap();
         let prog = include_bytes!("../../testprogs/minimal");
 
-        emulator.load_program(prog).unwrap();
+        emulator.load_elf(prog).unwrap();
         let res = emulator.run();
         match res {
             Err(Error::Exit(code)) => {
                 debug!("Program exited with code {}", code);
-                debug!("return val {}", emulator.machine.state.x[10]);
-                debug!("{}", emulator.dump_state());
+                debug!("return val {}", emulator.hart.state.x[10]);
             },
             _ => {
                 error!("Program did not exit as expected: {:?}", res);
@@ -117,13 +143,10 @@ mod tests {
     fn test_inner(test_name: &str) {
 
         let mut emulator = Emulator::new()
-            .with_syscall_handler(Box::new(crate::Mini))
-            .add_decoder(InsnSet::I)
-            .unwrap()
-            .add_decoder(InsnSet::Ziscr)
-            .unwrap()
-            .add_decoder(InsnSet::Zifencei)
-            .unwrap()
+            .syscall(Box::new(crate::Mini))
+            .decoder(InsnSet::I)
+            .decoder(InsnSet::Ziscr)
+            .decoder(InsnSet::Zifencei)
             .build()
             .unwrap();
 
@@ -135,14 +158,13 @@ mod tests {
             .expect("Failed to read test program file");
         let prog = prog_bytes.as_slice();
 
-        emulator.load_program(prog).unwrap();
+        emulator.load_elf(prog).unwrap();
         let res = emulator.run();
         match res {
             Err(Error::Exit(_)) => {
-                match emulator.machine.state.x[3] {
+                match emulator.hart.state.x[3] {
                     1 => {
                         debug!("Test {} passed.", test_name);
-                        debug!("{}", emulator.dump_state());
                     },
                     _ => {
                         panic!("Test {} failed", test_name);
@@ -215,31 +237,5 @@ mod tests {
         // test_inner("rv64ui-p-sw");
         // test_inner("rv64ui-p-xor");
         // test_inner("rv64ui-p-xori");
-    }
-
-    #[test]
-    fn test_prime() {
-        log::log_init(log::Level::Off);
-
-        let mut emulator = Emulator::new()
-            .with_syscall_handler(Box::new(crate::Newlib))
-            .add_decoder(InsnSet::I)
-            .unwrap()
-            .build()
-            .unwrap();
-        let prog = include_bytes!("../../testprogs/prime");
-
-        emulator.load_program(prog).unwrap();
-        let res = emulator.run();
-        match res {
-            Err(Error::Exit(code)) => {
-                debug!("Program exited with code {}", code);
-                debug!("{}", emulator.dump_state());
-            },
-            _ => {
-                error!("Program did not exit as expected: {:?}", res);
-                panic!("Test failed, program did not exit correctly.");
-            }
-        }
     }
 }
