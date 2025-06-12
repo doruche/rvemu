@@ -30,7 +30,7 @@ impl Hart {
             InsnSet::I => Arc::new(insn::Rv64IDecoder),
             InsnSet::Zifencei => Arc::new(insn::ZifenceiDecoder),
             InsnSet::Ziscr => Arc::new(insn::ZicsrDecoder),
-            _ => return Err(Error::Unimplemented),
+            _ => return Err(Error::InsnSetUnimplemented(set)),
         };
         self.decoders.push(decoder);
         
@@ -53,17 +53,15 @@ impl Hart {
         let cur_pc = self.state.pc;
         // For compressed instructions, we only consume 16 bits.
         if cur_pc % 2 != 0 {
-            error!("pc not aligned to instruction size at {:#x}", self.state.pc);
-            return Err(Error::InternalError("PC not aligned".to_string()));
+            return Err(Error::InternalError(format!("PC is not aligned: {:#x}", cur_pc)));
         }
         
-        let raw = guest.read_u32(self.state.pc)?;
+        let raw = guest.fetch_insn(cur_pc)?;
         let (insn, executor) = match self.decode(raw)? {
             Some((insn, executor)) => (insn, executor),
             None => {
-                error!("unknown instruction at {:#x}: {:#x}", self.state.pc, raw);
-                return Err(Error::Unimplemented);
-            }
+                return Err(Error::UnknownInsn(raw, cur_pc))
+            },
         };
 
         trace!("pc@{:#x}: executing instruction: {:x?}", self.state.pc, insn);

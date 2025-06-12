@@ -12,9 +12,7 @@ impl SyscallHandler for NewlibSyscallHandler {
     fn handle(&mut self, state: &mut State, guest: &mut GuestMem) -> Result<()> {
         match state.x[17] {
             _ => {
-                warn!("newlib syscall unimplemented: {}", state.x[17]);
-                state.x[0] = u64::MAX;
-                Ok(())
+                Err(Error::SyscallUnimplemented(state.x[17], state.pc))
             }
         }
     }

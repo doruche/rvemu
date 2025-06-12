@@ -12,8 +12,12 @@ pub mod error;
 pub mod config;
 mod utils;
 #[macro_use]
-pub mod log;
+mod log;
 
+pub use log::{
+    log_init,
+    Level,
+};
 pub use error::{
     Error,
     Result,

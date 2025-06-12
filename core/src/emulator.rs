@@ -58,7 +58,7 @@ impl EmulatorBuilder {
 
     pub fn build(mut self) -> Result<Emulator> {
         if self.syscall.is_none() {
-            return Err(Error::SyscallRequired);
+            return Err(Error::Other("Syscall handler not set".to_string()));
         }
         let mut isa = vec![];
         for set in self.decoders.iter() {
@@ -88,6 +88,7 @@ impl Emulator {
         self.guest.add_segment(
             0x8000_0000 - self.stack_size as u64,
             self.stack_size,
+            0x1000,
             MemFlags::READ|MemFlags::WRITE,
             None,
         )?;
@@ -100,11 +101,9 @@ impl Emulator {
             match self.step() {
                 Ok(_) => {},
                 Err(Error::Exit(code)) => {
-                    debug!("Program exited with code {}", code);
                     return Ok(code);
                 }
                 Err(e) => {
-                    error!("Error during execution: {:?}", e);
                     return Err(e);
                 }
             }
@@ -117,7 +116,7 @@ impl Emulator {
                 self.syscall.handle(&mut self.hart.state, &mut self.guest)?;
             }
             Some(BreakCause::Ebreak) => {
-                return Err(Error::Unimplemented);
+                unimplemented!();
             }
             None => {}
         }
@@ -149,13 +148,9 @@ mod tests {
         emulator.load_elf(prog).unwrap();
         let res = emulator.run();
         match res {
-            Err(Error::Exit(code)) => {
-                debug!("Program exited with code {}", code);
-                debug!("return val {}", emulator.hart.state.x[10]);
-            },
-            _ => {
-                error!("Program did not exit as expected: {:?}", res);
-                panic!("Test failed, program did not exit correctly.");
+            Ok(_) => {},
+            Err(e) => {
+                error!("Program did not exit as expected: {:?}", e);
             }
         }
     }
@@ -181,7 +176,7 @@ mod tests {
         emulator.load_elf(prog).unwrap();
         let res = emulator.run();
         match res {
-            Err(Error::Exit(_)) => {
+            Ok(_) => {
                 match emulator.hart.state.x[3] {
                     1 => {
                         debug!("Test {} passed.", test_name);
@@ -201,8 +196,9 @@ mod tests {
 
     #[test]
     fn test_rv64i() {
-        // log::log_init(log::Level::Trace);
+        log::log_init(log::Level::Trace);
 
+        // 53/54; fence_i
         // test_inner("rv64ui-p-add");
         // test_inner("rv64ui-p-addi");
         // test_inner("rv64ui-p-addiw");

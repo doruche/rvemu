@@ -15,13 +15,12 @@ pub struct MinilibSyscallHandler;
 impl SyscallHandler for MinilibSyscallHandler {
     fn handle(&mut self, state: &mut State, guest: &mut GuestMem) -> Result<()> {
         match state.x[17] {
-            SYS_EXIT => sys_exit(state.x[10] as i64),
+            SYS_EXIT|93 => sys_exit(state.x[10] as i64),
             SYS_PUTCHAR => sys_putchar(state.x[10] as u8),
             SYS_PUTS => sys_puts(state, guest, state.x[10]),
             _ => {
                 // for testing purposes, we just throw an error for unimplemented syscalls
-                error!("minilib syscall unimplemented: {}", state.x[17]);
-                Err(Error::Unimplemented)
+                Err(Error::SyscallUnimplemented(state.x[17], state.pc))
             }
         }
     }
@@ -45,7 +44,7 @@ fn sys_puts(state: &mut State, guest: &GuestMem, s: u64) -> Result<()> {
     loop {
         let byte = match guest.read_u8(ptr) {
             Ok(b) => b,
-            Err(Error::PermissionDenied|Error::MemAccessFault(..)) => {
+            Err(Error::MemAccessFault(..)) => {
                 warn!("sys_puts: memory access fault at {:#x}", s);
                 state.x[0] = u64::MAX;
                 return Ok(());

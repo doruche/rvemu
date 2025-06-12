@@ -46,7 +46,7 @@ pub struct MemSegment {
     // [gaddr_start, gaddr_end)
     gaddr_start: u64,
     gaddr_end: u64,
-    // 'm' means page-aligned.
+    // 'm' means aligned.
     // for bss/sbss segments,it additionally indicates more memory pages.
     m_gaddr_start: u64,
     m_gaddr_end: u64,
@@ -119,7 +119,7 @@ impl GuestMem {
     pub fn load_elf(&mut self, elf: &[u8]) -> Result<u64> {
         if elf.len() < size_of::<ElfHeader>() {
             warn!("ELF file too small: {} bytes", elf.len());
-            return Err(Error::InvalidElfHdr);
+            return Err(Error::InvalidElf);
         }
         let ehdr = ElfHeader::from_bytes(&elf[..size_of::<ElfHeader>()])?;
         let entry = ehdr.e_entry;
@@ -138,6 +138,7 @@ impl GuestMem {
                 self.add_segment(
                     phdr.p_vaddr,
                     phdr.p_memsz as usize,
+                    phdr.p_align as usize,
                     flags,
                     init_data
                 )?;
@@ -159,6 +160,7 @@ impl GuestMem {
         &mut self,
         gaddr_start: u64,
         len: usize,
+        align: usize,
         flags: MemFlags,
         init_data: Option<&[u8]>,
     ) -> Result<()> {
@@ -166,23 +168,17 @@ impl GuestMem {
 
         let gaddr_end = gaddr_start + len as u64;
 
-        let m_gaddr_start = round_down!(gaddr_start, PAGE_SIZE) as u64;
+        let m_gaddr_start = round_down!(gaddr_start, align) as u64;
 
-        if (m_gaddr_start != gaddr_start) {
-            warn!("Guest address {:#x} is not page-aligned, rounding down to {:#x}", gaddr_start, m_gaddr_start);
-        }
-
-        let m_gaddr_end = round_up!(gaddr_end, PAGE_SIZE) as u64;
+        let m_gaddr_end = round_up!(gaddr_end, align) as u64;
         let m_len = m_gaddr_end - m_gaddr_start as u64;
 
         // Check if the segment overlaps with existing segments
+        // This should be optimized later.
         for (&seg_base_gaddr, seg) in self.segments.iter() {
-            if (m_gaddr_start < seg.gaddr_start && m_gaddr_end > seg.gaddr_start) ||
-               (m_gaddr_start < seg.gaddr_end && m_gaddr_end > seg.gaddr_end) ||
-               (m_gaddr_start >= seg.gaddr_start && m_gaddr_end <= seg.gaddr_end) ||
-               (m_gaddr_start <= seg.gaddr_start && m_gaddr_end >= seg.gaddr_end) {
-                warn!("Memory segment overlaps with existing segment at base address {:#x}", seg_base_gaddr);
-                return Err(Error::SegmentOverlap);
+            if m_gaddr_start < seg.m_gaddr_start && m_gaddr_end > seg.m_gaddr_start
+            || m_gaddr_start >= seg.m_gaddr_start && m_gaddr_start < seg.m_gaddr_end {
+                return Err(Error::InternalError("Memory segment overlaps with existing segment".into()))
             }
         }
 
@@ -190,7 +186,6 @@ impl GuestMem {
             .len(m_len as usize)
             .map_anon()
             .map_err(|e| {
-                warn!("Failed to create memory map: {}", e);
                 Error::InternalError(format!("Failed to create memory map: {}", e))
             })?;
         
@@ -201,10 +196,7 @@ impl GuestMem {
         );
 
         if let Some(data) = init_data {
-            if data.len() > len {
-                warn!("Initialization data exceeds requested size: {} > {}", data.len(), len);
-                return Err(Error::OutOfBounds);
-            }
+            assert!(data.len() <= len);
             // copy init data
             segment.host_mmap[(gaddr_start - m_gaddr_start) as usize..(gaddr_start - m_gaddr_start) as usize + data.len()]
                 .copy_from_slice(data);
@@ -212,6 +204,7 @@ impl GuestMem {
             segment.host_mmap[..(gaddr_start - m_gaddr_start) as usize].fill(0);
             segment.host_mmap[(gaddr_start - m_gaddr_start) as usize + data.len()..].fill(0);
         }
+
         self.segments.insert(m_gaddr_start, segment);
 
         Ok(())
@@ -224,12 +217,10 @@ impl GuestMem {
                 if segment.allows(access) {
                     return Ok((base_gaddr, segment));
                 } else {
-                    warn!("Access denied for address {:#x} with flags {:?}", gaddr, access);
-                    return Err(Error::PermissionDenied)
+                    return Err(Error::MemAccessFault(access, gaddr));
                 }
             }
         }
-        warn!("Address {:#x} not found in any memory segment", gaddr);
         Err(Error::MemAccessFault(access, gaddr))
     }
 
@@ -239,19 +230,30 @@ impl GuestMem {
                 if segment.allows(access) {
                     return Ok((base_gaddr, segment));
                 } else {
-                    warn!("Access denied for address {:#x} with flags {:?}", gaddr, access);
-                    return Err(Error::PermissionDenied)
+                    return Err(Error::MemAccessFault(access, gaddr));
                 }
             }
         }
-        warn!("Address {:#x} not found in any memory segment", gaddr);
         Err(Error::MemAccessFault(access, gaddr))
     }
 
-    pub fn read_u8(&self, gaddr: u64) -> Result<u8> {
-        let (base_gaddr, segment) = self.decompose(gaddr, MemAccess::Read)?;
+    pub fn fetch_insn(&self, pc: u64) -> Result<u32> {
+        let mut res = [0; 4];
+        for i in 0..4u64 {
+            res[i as usize] = self.read_u8_raw(pc + i, MemAccess::Execute)?;
+        }
+        Ok(u32::from_le_bytes(res))
+    }
+
+
+    pub fn read_u8_raw(&self, gaddr: u64, access: MemAccess) -> Result<u8> {
+        let (base_gaddr, segment) = self.decompose(gaddr, access)?;
         let offset = (gaddr - segment.m_gaddr_start) as usize;
-        Ok(segment.host_mmap[offset])
+        Ok(segment.host_mmap[offset])       
+    }
+
+    pub fn read_u8(&self, gaddr: u64) -> Result<u8> {
+        self.read_u8_raw(gaddr, MemAccess::Read)
     }
 
     pub fn write_u8(&mut self, gaddr: u64, value: u8) -> Result<()> {

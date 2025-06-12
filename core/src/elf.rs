@@ -53,7 +53,7 @@ impl ElfHeader {
     pub fn from_bytes(src: &[u8]) -> Result<Self> {
         if src.len() != size_of::<Self>() {
             warn!("ELF header size mismatch: expected {}, got {}", size_of::<Self>(), src.len());
-            return Err(Error::InvalidElfHdr);
+            return Err(Error::InvalidElf);
         }
         let res = unsafe {
             let mut hdr: Self = std::mem::zeroed();
@@ -65,17 +65,17 @@ impl ElfHeader {
         let magic = &res.e_ident[..4];
         if magic != ELF_MAGIC {
             warn!("Invalid ELF magic number: expected {:?}, got {:?}", ELF_MAGIC, magic);
-            return Err(Error::InvalidElfHdr);
+            return Err(Error::InvalidElf);
         }
 
         if res.e_ident[EI_CLASS] != ELF_CLASS_64 {
             warn!("Unsupported ELF class: expected {}, got {}", ELF_CLASS_64, res.e_ident[EI_CLASS]);
-            return Err(Error::InvalidElfHdr);
+            return Err(Error::InvalidElf);
         }
 
         if res.e_machine != EM_RISCV {
             warn!("Unsupported machine type: expected {}, got {}", EM_RISCV, res.e_machine);
-            return Err(Error::InvalidElfHdr);
+            return Err(Error::InvalidElf);
         }
 
         Ok(res)
@@ -99,7 +99,7 @@ impl ProgramHeader {
     pub fn from_bytes(src: &[u8]) -> Result<Self> {
         if src.len() != size_of::<Self>() {
             warn!("Program header size mismatch: expected {}, got {}", size_of::<Self>(), src.len());
-            return Err(Error::InvalidElfHdr);
+            return Err(Error::InvalidElf);
         }
         let res = unsafe {
             let mut phdr: Self = std::mem::zeroed();
