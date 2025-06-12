@@ -73,18 +73,9 @@ impl Hart {
             self.state.pc = cur_pc + insn.step_size() as u64;
         }
         
-        if let Some(cause) = self.state.break_on {
-            match cause {
-                BreakCause::Ecall => {
-                    trace!("break on ecall at {:#x}", self.state.pc);
-                },
-                BreakCause::Ebreak => {
-                    trace!("break on ebreak at {:#x}", self.state.pc);
-                },
-            }
-            return Ok(Some(cause));
-        }
-
-        Ok(None)
+        Ok(self.state.break_on.take().map(|cause| {
+            trace!("break on: {:?}", cause);
+            cause
+        }))
     }
 }

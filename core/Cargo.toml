@@ -5,4 +5,6 @@ edition = "2024"
 
 [dependencies]
 bitflags = "2.9.1"
+gdbstub = "0.7.5"
+gdbstub_arch = "0.3.1"
 memmap2 = "0.9.5"

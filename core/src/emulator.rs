@@ -1,8 +1,10 @@
 //! Interface for users to interact with the emulator.
 //! Operations such as loading programs, running them, and accessing the state of the CPU and memory are provided.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
+use crate::debug::WatchMode;
 use crate::guest::*;
 use crate::insn::*;
 use crate::*;
@@ -12,15 +14,24 @@ use crate::hart::*;
 use crate::state::*;
 use crate::syscall::*;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EmuMode {
+    Run,
+    Debug,
+}
+
 #[derive(Debug)]
 pub struct Emulator {
     // harts: Vec<Hart>,
-    hart: Hart,
+    pub(crate) hart: Hart,
     // guest: Arc<RwLock<GuestMem>>,
-    guest: GuestMem,
-    syscall: Box<dyn SyscallHandler>,
-    stack_size: usize,
-    isa: Vec<InsnSet>,
+    pub(crate) guest: GuestMem,
+    pub(crate) syscall: Box<dyn SyscallHandler>,
+    pub(crate) stack_size: usize,
+    pub(crate) breakpoints: HashSet<u64>,
+    pub(crate) watchpoints: HashSet<u64>,
+    pub(crate) mode: EmuMode,
+    pub(crate) isa: Vec<InsnSet>,
 }
 
 pub struct EmulatorBuilder {
@@ -29,6 +40,7 @@ pub struct EmulatorBuilder {
     decoders: Vec<InsnSet>,
     /// default stack size in bytes (8 MiB)
     stack_size: usize,
+    mode: EmuMode,
 }
 
 impl EmulatorBuilder {
@@ -38,6 +50,7 @@ impl EmulatorBuilder {
             syscall: None,
             decoders: vec![],
             stack_size: STACK_SIZE,
+            mode: EmuMode::Run,
         }
     }
 
@@ -56,6 +69,11 @@ impl EmulatorBuilder {
         self
     }
 
+    pub fn debug(mut self) -> Self {
+        self.mode = EmuMode::Debug;
+        self
+    }
+
     pub fn build(mut self) -> Result<Emulator> {
         if self.syscall.is_none() {
             return Err(Error::Other("Syscall handler not set".to_string()));
@@ -70,6 +88,9 @@ impl EmulatorBuilder {
             guest: GuestMem::new(),
             syscall: self.syscall.unwrap(),
             stack_size: self.stack_size,
+            breakpoints: HashSet::new(),
+            watchpoints: HashSet::new(),
+            mode: self.mode,
             isa,
         })
     }
@@ -97,15 +118,22 @@ impl Emulator {
     }
 
     pub fn run(&mut self) -> Result<i64> {
-        loop {
-            match self.step() {
-                Ok(_) => {},
-                Err(Error::Exit(code)) => {
-                    return Ok(code);
+        match self.mode {
+            EmuMode::Run => {
+                loop {
+                    match self.step() {
+                        Ok(_) => {},
+                        Err(Error::Exit(code)) => {
+                            return Ok(code);
+                        }
+                        Err(e) => {
+                            return Err(e);
+                        }
+                    }
                 }
-                Err(e) => {
-                    return Err(e);
-                }
+            },
+            EmuMode::Debug => {
+                todo!()
             }
         }
     }
@@ -123,9 +151,6 @@ impl Emulator {
         Ok(())
     }
 
-    pub fn state(&self) -> &State {
-        &self.hart.state
-    }
 }
 
 #[cfg(test)]

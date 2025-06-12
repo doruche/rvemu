@@ -9,6 +9,7 @@ pub mod syscall;
 pub mod elf;
 pub mod emulator;
 pub mod error;
+pub mod debug;
 pub mod config;
 mod utils;
 #[macro_use]
