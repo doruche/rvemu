@@ -28,7 +28,7 @@ impl SyscallHandler for MinilibSyscallHandler {
 
 fn sys_exit(exit_code: i64) -> Result<()> {
     debug!("sys_exit called with code {}", exit_code);
-    Err(Error::Exit(exit_code))
+    Err(Error::Exited(exit_code))
 }
 
 fn sys_putchar(c: u8) -> Result<()> {

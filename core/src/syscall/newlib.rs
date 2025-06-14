@@ -21,6 +21,6 @@ impl SyscallHandler for NewlibSyscallHandler {
 impl NewlibSyscallHandler {
     fn sys_exit(&mut self, state: &mut State) -> Result<i64> {
         debug!("sys_exit called with code {}", state.x[10]);
-        return Err(Error::Exit(state.x[10] as i64));
+        return Err(Error::Exited(state.x[10] as i64));
     }
 }

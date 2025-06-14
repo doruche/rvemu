@@ -2,7 +2,11 @@
 //! Operations such as loading programs, running them, and accessing the state of the CPU and memory are provided.
 
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::net::TcpListener;
+use std::net::TcpStream;
+
+use gdbstub::conn::ConnectionExt;
+use gdbstub::stub::GdbStub;
 
 use crate::debug::WatchMode;
 use crate::guest::*;
@@ -17,10 +21,23 @@ use crate::syscall::*;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmuMode {
     Run,
-    Debug,
+    Debug(ExecMode),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecMode {
+    Step,
+    Continue,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExitReason {
+    DoneStep,
+    IncomingData,
+    Exited(i64),
+    BreakpointHit(u64),
+}
+
 pub struct Emulator {
     // harts: Vec<Hart>,
     pub(crate) hart: Hart,
@@ -70,7 +87,7 @@ impl EmulatorBuilder {
     }
 
     pub fn debug(mut self) -> Self {
-        self.mode = EmuMode::Debug;
+        self.mode = EmuMode::Debug(ExecMode::Step);
         self
     }
 
@@ -117,14 +134,14 @@ impl Emulator {
         Ok(())
     }
 
-    pub fn run(&mut self) -> Result<i64> {
+    pub fn run(&mut self) -> Result<ExitReason> {
         match self.mode {
             EmuMode::Run => {
                 loop {
-                    match self.step() {
+                    match self.force_step() {
                         Ok(_) => {},
-                        Err(Error::Exit(code)) => {
-                            return Ok(code);
+                        Err(Error::Exited(code)) => {
+                            return Ok(ExitReason::Exited(code));
                         }
                         Err(e) => {
                             return Err(e);
@@ -132,13 +149,18 @@ impl Emulator {
                     }
                 }
             },
-            EmuMode::Debug => {
-                todo!()
-            }
+            _ => unreachable!(),
         }
     }
 
-    pub fn step(&mut self) -> Result<()> {
+    pub fn step(&mut self) -> Result<ExitReason> {
+        if self.breakpoints.contains(&self.hart.state.pc) {
+            return Err(Error::BreakpointHit);
+        }
+        self.force_step()
+    }
+
+    pub fn force_step(&mut self) -> Result<ExitReason> {
         match self.hart.step(&mut self.guest)? {
             Some(BreakCause::Ecall) => {
                 self.syscall.handle(&mut self.hart.state, &mut self.guest)?;
@@ -148,7 +170,7 @@ impl Emulator {
             }
             None => {}
         }
-        Ok(())
+        Ok(ExitReason::DoneStep)
     }
 
 }

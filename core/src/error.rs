@@ -27,7 +27,8 @@ pub enum Error {
     WatchpointNotFound(u64),
 
     // Control flow exceptions
-    Exit(i64),
+    BreakpointHit,
+    Exited(i64),
 }
 
 impl std::fmt::Display for Error {
@@ -45,7 +46,8 @@ impl std::fmt::Display for Error {
             Error::RepeatedWatchpoint(addr) => write!(f, "Repeated watchpoint at {:#x}", addr),
             Error::BreakpointNotFound(addr) => write!(f, "Breakpoint not found at {:#x}", addr),
             Error::WatchpointNotFound(addr) => write!(f, "Watchpoint not found at {:#x}", addr),
-            Error::Exit(code) => write!(f, "Exit with code {}", code),
+            Error::BreakpointHit => write!(f, "Breakpoint hit"),
+            Error::Exited(code) => write!(f, "Exit with code {}", code),
             Error::IoError(err, path) => {
                 let msg = err.to_string();
                 if path.is_empty() {
